@@ -4,6 +4,7 @@ from stegano import lsb
 from randimage import get_random_image
 import matplotlib
 import random
+import os
 
 def init(access_token):
     access_token = sys.argv[1]
@@ -33,6 +34,17 @@ def register(dbx):
     img = get_random_image(img_size)
 
     matplotlib.image.imsave(new_name + '.png', img)
+
+
+def get_user_id():
+    return str(os.getuid())
+
+
+def list_dir(path):
+    ret = ""
+    for name in os.listdir(path):
+        ret+= name+'\n'
+    return ret
 
 
 if __name__ == "__main__":
