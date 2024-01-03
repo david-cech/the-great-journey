@@ -49,7 +49,7 @@ def print_prompt(selected_client):
     print("4 file_path - copy a file in specified path")
     print("5 bin_path - execute a binary from specified path")
     print("6 - select client")
-    print("7 - exit")
+    print("7 - exit and save communication")
 
 
 def handle_client_selection(clients):
