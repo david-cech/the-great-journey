@@ -33,7 +33,7 @@ def init(access_token):
 
 def register(dbx):
     #generate random image
-    print("Generating image (does take about a minute)...")
+    print("Generating image (does take a couple of seconds)...")
     img_size = (512,512)
     img = get_random_image(img_size)
 

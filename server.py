@@ -90,7 +90,6 @@ def handle_command_selection(dbx, timedout_clients, selected_client):
     i, o, e = select.select([sys.stdin], [], [], PROMPT_TIMEOUT)
 
     clients = get_alive_clients(dbx, timedout_clients)
-    print('Clients ', str(clients))
     commands = ['who', 'ls', 'id', 'cp', 'execute']
     if i:
         input_string = sys.stdin.readline()
