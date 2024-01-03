@@ -4,8 +4,10 @@ Unfortunately, due to the limited time I've had for this assignment, I didn't ma
 ### Communication
 
 Communication is done via embedding simple commands in images using steganography. The images are generated using https://pypi.org/project/randimage/ and are randomly named a given list. The commands consist of fields separated by a pipe symbol and the individual commands are separated by a semicolon.
+
 The structure can be seen below:
 `timestamp|(REQUEST or RESPONSE)|command|content;`
+
 Example:
 `03/01/2024 18:12:32|REQUEST|who|;`
 
