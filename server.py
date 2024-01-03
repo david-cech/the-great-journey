@@ -1,13 +1,10 @@
 import dropbox
 import sys
 import select
-import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from stegano import lsb
-from randimage import get_random_image
 import io
 import os
-import matplotlib
 
 #send heartbeat every 180 seconds
 HEARTBEAT_PERIOD = 180
