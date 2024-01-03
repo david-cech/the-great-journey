@@ -11,8 +11,9 @@ import time
 import string
 import subprocess
 
-
+#time between checks for requests from server
 CHECK_PERIOD = 60
+
 
 def current_time():
     return round(time.time() * 1000)

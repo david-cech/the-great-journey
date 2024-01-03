@@ -9,12 +9,14 @@ import io
 import os
 import matplotlib
 
-
+#send heartbeat every 180 seconds
 HEARTBEAT_PERIOD = 180
-
+#check client responses 30 seconds
 CHECK_PERIOD = 30
-
+#set timeout for clients
 TIMEOUT = HEARTBEAT_PERIOD*3
+#set timeout for prompt
+PROMPT_TIMEOUT = 30
 
 tmp_path = None
 backup_path = None
@@ -35,14 +37,15 @@ def init(access_token):
     if len(dbx.files_list_folder('').entries) == 0:
         dbx.files_create_folder('/art')
 
-    for entry in dbx.files_list_folder('').entries:
-        print(entry.name)
-
     return dbx
 
 
-def print_prompt():
-    print("\nType 1-6 to select a feature")
+def print_prompt(selected_client):
+    if selected_client == -3:
+        print("\nSelected client broadcast")
+    else:
+        print("\nSelected client " + str(selected_client))
+    print("Type 1-7 to select a feature")
     print("1 - list of users currently logged in")
     print("2 dir_path - list content of specified directory")
     print("3 - id of current user")
@@ -58,7 +61,7 @@ def handle_client_selection(clients):
         print(str(i) + " " + client)
     print("Type 0-" + str(len(clients)) + " to select a client")
 
-    i, o, e = select.select([sys.stdin], [], [], 15)
+    i, o, e = select.select([sys.stdin], [], [], PROMPT_TIMEOUT)
     if i:
         input_string = sys.stdin.readline()
         words = input_string.strip().split()
@@ -85,12 +88,8 @@ def get_alive_clients(dbx, timedout_clients):
 
 
 def handle_command_selection(dbx, timedout_clients, selected_client):
-    if selected_client == -3:
-        print("Selected client broadcast")
-    else:
-        print("Selected client " + str(selected_client))
-    print_prompt()
-    i, o, e = select.select([sys.stdin], [], [], 15) #timeout after 15 seconds
+    print_prompt(selected_client)
+    i, o, e = select.select([sys.stdin], [], [], PROMPT_TIMEOUT)
 
     clients = get_alive_clients(dbx, timedout_clients)
     print('Clients ', str(clients))
@@ -166,10 +165,7 @@ def process_files(dbx, last_check, clients):
         
         for line in message.split(';')[:-1]:
             fields = line.split('|')
-            #print(fields)
-            response_time = datetime.strptime(fields[0], "%d/%m/%Y %H:%M:%S")     
-            print("Received")
-            print(fields)           
+            response_time = datetime.strptime(fields[0], "%d/%m/%Y %H:%M:%S")             
             if last_check < response_time and fields[1] == 'RESPONSE':
                 if fields[2] in ['heartbeat', 'register']:
                     continue
